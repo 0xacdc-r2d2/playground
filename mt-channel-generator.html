@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Configurator V16</title>
+    <title>Meshtastic Configurator V17</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
         .container { max-width: 900px; margin: auto; }
@@ -21,8 +21,8 @@
 <body>
 
 <div class="container">
-    <h2>Meshtastic Generator <span style="color: #0078d4;">V16</span></h2>
-    <div id="status" class="status-box loading">Lade Module via Skypack...</div>
+    <h2>Meshtastic Generator <span style="color: #0078d4;">V17</span></h2>
+    <div id="status" class="status-box loading">Initialisiere Protobuf Klassen...</div>
     
     <div id="channel-list"></div>
     <div style="display:flex; gap:10px;">
@@ -32,22 +32,21 @@
 
     <button class="btn-gen" onclick="window.generate()">URL & JSON GENERIEREN</button>
 
-    <h3>Import URL</h3>
     <div class="url-box" id="url-output" onclick="window.copyText(this.innerText)">URL erscheint hier...</div>
-    
-    <h3>Input / Output</h3>
     <textarea id="json-io" placeholder="Daten hier einfügen..."></textarea>
 </div>
 
 <script type="module">
-    // Skypack liefert ein korrekt gebündeltes ES-Modul ohne Pfad-Fehler
-    import * as Meshtastic from 'https://cdn.skypack.dev/@meshtastic/js';
+    // Wir importieren gezielt die benötigten Klassen über esm.sh (stabiler für Protobuf)
+    import { ChannelSet } from 'https://esm.sh/@meshtastic/js@latest';
 
-    // Status Update
-    if (Meshtastic && Meshtastic.ChannelSet) {
+    // Status Prüfung
+    if (ChannelSet && typeof ChannelSet.encode === 'function') {
         const s = document.getElementById('status');
-        s.innerText = "Library bereit ✅ (Skypack ESM)";
+        s.innerText = "Klassen erfolgreich geladen ✅ (Ready to Encode)";
         s.className = "status-box ready";
+    } else {
+        document.getElementById('status').innerText = "Fehler: ChannelSet.encode nicht gefunden!";
     }
 
     window.addChannelUI = (data = {}) => {
@@ -72,6 +71,12 @@
     };
 
     window.generate = async () => {
+        // Explizite Prüfung vor dem Aufruf
+        if (!ChannelSet || typeof ChannelSet.encode !== 'function') {
+            alert("Fehler: Protobuf Library ist noch nicht bereit.");
+            return;
+        }
+
         const cards = document.querySelectorAll('.card');
         const channelSetObj = { channels: [] };
         
@@ -84,11 +89,11 @@
                     pskBytes = new Uint8Array(binary.length);
                     for (let x = 0; x < binary.length; x++) pskBytes[x] = binary.charCodeAt(x);
                 }
-            } catch(e){}
+            } catch(e){ console.error("PSK Decode Error", e); }
 
             channelSetObj.channels.push({
                 index: i,
-                role: i === 0 ? 1 : 2,
+                role: i === 0 ? 1 : 2, // 1=PRIMARY, 2=SECONDARY
                 settings: {
                     name: card.querySelector('.c-name').value,
                     psk: pskBytes,
@@ -99,10 +104,22 @@
             });
         });
 
-        const buffer = Meshtastic.ChannelSet.encode(channelSetObj).finish();
-        const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-        document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
-        document.getElementById('json-io').value = JSON.stringify(channelSetObj, (k,v) => v instanceof Uint8Array ? btoa(String.fromCharCode(...v)) : v, 2);
+        try {
+            // HIER war der Fehler: Wir rufen nun direkt ChannelSet.encode auf
+            const message = ChannelSet.create(channelSetObj);
+            const buffer = ChannelSet.encode(message).finish();
+            
+            const b64 = btoa(String.fromCharCode(...buffer))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+                
+            document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
+            document.getElementById('json-io').value = JSON.stringify(channelSetObj, (k,v) => v instanceof Uint8Array ? btoa(String.fromCharCode(...v)) : v, 2);
+        } catch(e) { 
+            console.error(e);
+            alert("Encoding fehlgeschlagen: " + e.message); 
+        }
     };
 
     window.doImport = () => {
@@ -114,7 +131,12 @@
         }
     };
 
-    window.copyText = (t) => { navigator.clipboard.writeText(t); alert("URL kopiert!"); };
+    window.copyText = (t) => { 
+        if(t.includes("http")) {
+            navigator.clipboard.writeText(t); 
+            alert("URL kopiert!"); 
+        }
+    };
 
     // Initialer Kanal
     window.addChannelUI();
