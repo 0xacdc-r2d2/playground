@@ -2,83 +2,82 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Configurator V17</title>
+    <title>Meshtastic Configurator V18</title>
+    <script src="https://cdn.jsdelivr.net/npm/@meshtastic/js@2.5.16/dist/meshtastic.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
         .container { max-width: 900px; margin: auto; }
-        .status-box { padding: 10px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; text-align: center; border: 1px solid #333; }
+        .status-box { padding: 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; border: 1px solid #333; }
         .loading { background: #332b00; color: #ffcc00; }
         .ready { background: #1b3320; color: #44ff66; border-color: #2d5a35; }
-        .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 6px solid #444; }
-        .primary { border-left-color: #0078d4; }
+        .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 6px solid #0078d4; }
         input, select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 10px; border-radius: 4px; }
         .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin: 15px 0; font-family: monospace; cursor: pointer; border-radius: 5px; }
         button { cursor: pointer; border: none; border-radius: 5px; padding: 10px 15px; font-weight: bold; }
         .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; margin-top: 10px; }
         textarea { background: #1a1a1a; color: #00ff41; width: 100%; height: 160px; border: 1px solid #333; font-family: monospace; padding: 10px; box-sizing: border-box; margin-top: 10px; }
+        .mqtt-row { display: flex; gap: 15px; align-items: center; margin-top: 10px; font-size: 0.9em; color: #ffa500; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Meshtastic Generator <span style="color: #0078d4;">V17</span></h2>
-    <div id="status" class="status-box loading">Initialisiere Protobuf Klassen...</div>
+    <h2>Meshtastic Generator <span style="color: #0078d4;">V18</span></h2>
+    <div id="status" class="status-box loading">Suche globales Meshtastic Objekt...</div>
     
     <div id="channel-list"></div>
     <div style="display:flex; gap:10px;">
-        <button onclick="window.addChannelUI()" style="background: #444; color: #fff;">+ Kanal</button>
-        <button onclick="window.doImport()" style="background: #0078d4; color: #fff;">Import (CLI/JSON)</button>
+        <button onclick="addChannelUI()" style="background: #444; color: #fff;">+ Kanal hinzufügen</button>
+        <button onclick="doImport()" style="background: #0078d4; color: #fff;">Import (CLI/JSON)</button>
     </div>
 
-    <button class="btn-gen" onclick="window.generate()">URL & JSON GENERIEREN</button>
+    <button class="btn-gen" onclick="generate()">URL & JSON GENERIEREN</button>
 
-    <div class="url-box" id="url-output" onclick="window.copyText(this.innerText)">URL erscheint hier...</div>
-    <textarea id="json-io" placeholder="Daten hier einfügen..."></textarea>
+    <div class="url-box" id="url-output" onclick="copyText(this.innerText)">Hier klicken zum Kopieren nach Generierung...</div>
+    <textarea id="json-io" placeholder="Daten hier einfügen oder Output ablesen..."></textarea>
 </div>
 
-<script type="module">
-    // Wir importieren gezielt die benötigten Klassen über esm.sh (stabiler für Protobuf)
-    import { ChannelSet } from 'https://esm.sh/@meshtastic/js@latest';
+<script>
+    let ChannelSetClass;
 
-    // Status Prüfung
-    if (ChannelSet && typeof ChannelSet.encode === 'function') {
-        const s = document.getElementById('status');
-        s.innerText = "Klassen erfolgreich geladen ✅ (Ready to Encode)";
-        s.className = "status-box ready";
-    } else {
-        document.getElementById('status').innerText = "Fehler: ChannelSet.encode nicht gefunden!";
-    }
+    // Wir prüfen regelmäßig, ob das Skript von jsDelivr das Objekt geladen hat
+    const initCheck = setInterval(() => {
+        // In der dist/meshtastic.min.js liegt alles unter window.meshtastic
+        const lib = window.meshtastic;
+        if (lib && lib.ChannelSet) {
+            ChannelSetClass = lib.ChannelSet;
+            const s = document.getElementById('status');
+            s.innerText = "Meshtastic Library geladen ✅ (Global Bundle)";
+            s.className = "status-box ready";
+            clearInterval(initCheck);
+        }
+    }, 500);
 
-    window.addChannelUI = (data = {}) => {
+    function addChannelUI(data = {}) {
         const list = document.getElementById('channel-list');
         const count = list.children.length;
-        const isPrimary = count === 0;
         const div = document.createElement('div');
-        div.className = `card ${isPrimary ? 'primary' : ''}`;
+        div.className = 'card';
         div.innerHTML = `
-            <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'}</strong>
+            <strong>Kanal Index ${count} (${count === 0 ? 'PRIMARY' : 'SECONDARY'})</strong>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
-                <input type="text" class="c-name" placeholder="Name" value="${data.name || ''}">
-                <input type="text" class="c-psk" placeholder="PSK" value="${data.psk || 'AQ=='}">
+                <input type="text" class="c-name" placeholder="Kanalname" value="${data.name || ''}">
+                <input type="text" class="c-psk" placeholder="PSK (Base64)" value="${data.psk || 'AQ=='}">
             </div>
-            <div style="margin-top:10px; font-size:0.9em; display:flex; gap:15px; align-items:center;">
-                Precision: <select class="c-prec"><option value="0">0</option><option value="16">16</option><option value="32">32</option></select>
-                <label><input type="checkbox" class="c-up" ${data.uplinkEnabled ? 'checked' : ''}> Uplink</label>
-                <label><input type="checkbox" class="c-down" ${data.downlinkEnabled ? 'checked' : ''}> Downlink</label>
+            <div class="mqtt-row">
+                Präzision: <select class="c-prec"><option value="0">0 (Aus)</option><option value="16">16</option><option value="32">32 (Genau)</option></select>
+                <label><input type="checkbox" class="c-up" ${data.uplinkEnabled ? 'checked' : ''}> MQTT Uplink</label>
+                <label><input type="checkbox" class="c-down" ${data.downlinkEnabled ? 'checked' : ''}> MQTT Downlink</label>
             </div>
         `;
         list.appendChild(div);
-    };
+    }
 
-    window.generate = async () => {
-        // Explizite Prüfung vor dem Aufruf
-        if (!ChannelSet || typeof ChannelSet.encode !== 'function') {
-            alert("Fehler: Protobuf Library ist noch nicht bereit.");
-            return;
-        }
+    async function generate() {
+        if (!ChannelSetClass) return alert("Bibliothek noch nicht bereit!");
 
         const cards = document.querySelectorAll('.card');
-        const channelSetObj = { channels: [] };
+        const payload = { channels: [] };
         
         cards.forEach((card, i) => {
             const pskStr = card.querySelector('.c-psk').value.trim();
@@ -89,11 +88,11 @@
                     pskBytes = new Uint8Array(binary.length);
                     for (let x = 0; x < binary.length; x++) pskBytes[x] = binary.charCodeAt(x);
                 }
-            } catch(e){ console.error("PSK Decode Error", e); }
+            } catch(e){}
 
-            channelSetObj.channels.push({
+            payload.channels.push({
                 index: i,
-                role: i === 0 ? 1 : 2, // 1=PRIMARY, 2=SECONDARY
+                role: i === 0 ? 1 : 2,
                 settings: {
                     name: card.querySelector('.c-name').value,
                     psk: pskBytes,
@@ -105,41 +104,29 @@
         });
 
         try {
-            // HIER war der Fehler: Wir rufen nun direkt ChannelSet.encode auf
-            const message = ChannelSet.create(channelSetObj);
-            const buffer = ChannelSet.encode(message).finish();
+            const message = ChannelSetClass.create(payload);
+            const buffer = ChannelSetClass.encode(message).finish();
+            const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
             
-            const b64 = btoa(String.fromCharCode(...buffer))
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
-                
             document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
-            document.getElementById('json-io').value = JSON.stringify(channelSetObj, (k,v) => v instanceof Uint8Array ? btoa(String.fromCharCode(...v)) : v, 2);
-        } catch(e) { 
-            console.error(e);
-            alert("Encoding fehlgeschlagen: " + e.message); 
-        }
-    };
+            // JSON Output mit Base64 Fix für PSK
+            document.getElementById('json-io').value = JSON.stringify(payload, (k,v) => v instanceof Uint8Array ? pskStr : v, 2);
+        } catch(e) { alert("Fehler: " + e.message); }
+    }
 
-    window.doImport = () => {
-        const raw = document.getElementById('json-io').value.trim();
+    function doImport() {
+        const raw = document.getElementById('json-io').value;
         const matches = raw.match(/\{.*\}/g);
         if(matches) {
             document.getElementById('channel-list').innerHTML = "";
-            matches.forEach(m => window.addChannelUI(JSON.parse(m)));
+            matches.forEach(m => addChannelUI(JSON.parse(m)));
         }
-    };
+    }
 
-    window.copyText = (t) => { 
-        if(t.includes("http")) {
-            navigator.clipboard.writeText(t); 
-            alert("URL kopiert!"); 
-        }
-    };
-
-    // Initialer Kanal
-    window.addChannelUI();
+    function copyText(t) { navigator.clipboard.writeText(t); alert("URL kopiert!"); }
+    
+    // Erster Kanal beim Laden
+    window.onload = () => addChannelUI();
 </script>
 </body>
 </html>
