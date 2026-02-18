@@ -2,25 +2,24 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Configurator V9</title>
-    <script src="https://cdn.jsdelivr.net/npm/@meshtastic/js@latest/dist/index.min.js"></script>
+    <title>Meshtastic Configurator V10</title>
+    <script src="https://unpkg.com/@meshtastic/js@latest/dist/index.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
         .container { max-width: 950px; margin: auto; }
+        .lib-status { padding: 5px 10px; border-radius: 4px; font-size: 0.8em; display: inline-block; margin-bottom: 10px; }
+        .status-ok { background: #28a745; color: white; }
+        .status-error { background: #a80000; color: white; }
         .channel-card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 6px solid #444; position: relative; }
         .primary { border-left-color: #0078d4; }
         .controls { margin-bottom: 20px; display: flex; gap: 10px; }
         input, select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        input[type="checkbox"] { width: auto; transform: scale(1.1); margin-right: 5px; cursor: pointer; }
-        .remove-btn { position: absolute; right: 15px; top: 15px; background: #a80000; color: white; border: none; border-radius: 4px; cursor: pointer; padding: 5px 12px; }
         .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin-top: 10px; font-family: monospace; border-radius: 5px; cursor: pointer; }
         .btn { cursor: pointer; border: none; border-radius: 5px; font-weight: bold; padding: 10px 20px; }
         .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; margin-top: 20px; }
         .btn-add { background: #444; color: white; }
         .btn-import { background: #0078d4; color: white; }
         .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 10px; }
-        .module-settings { background: #252525; padding: 10px; border-radius: 5px; margin-top: 10px; border: 1px solid #3a3a3a; }
-        .mqtt-zone { display: flex; gap: 20px; align-items: center; margin-top: 10px; padding: 5px; border-top: 1px solid #333; }
         label { font-size: 0.7rem; color: #888; text-transform: uppercase; display: block; margin-bottom: 4px; }
         textarea { background: #1a1a1a; color: #00ff41; width: 100%; height: 180px; border: 1px solid #333; font-family: monospace; border-radius: 5px; padding: 10px; box-sizing: border-box; margin-top: 10px; }
     </style>
@@ -28,7 +27,8 @@
 <body>
 
 <div class="container">
-    <h2>Meshtastic Channel Generator <span style="color: #0078d4;">V9</span></h2>
+    <h2>Meshtastic Channel Generator <span style="color: #0078d4;">V10</span></h2>
+    <div id="lib-indicator" class="lib-status status-error">Library wird geladen...</div>
     
     <div id="channel-list"></div>
     
@@ -43,24 +43,29 @@
     <div id="url-output" class="url-box" onclick="copyToClipboard(this.innerText)">Noch keine URL generiert.</div>
 
     <h3>2. Daten (JSON/CLI)</h3>
-    <textarea id="json-io" placeholder="Hier CLI Output oder JSON einfügen..."></textarea>
+    <textarea id="json-io"></textarea>
 </div>
 
 <script>
-    const MAX_CHANNELS = 8;
-    const precisionOptions = [
-        { bits: 0, label: "Deaktiviert (0 Bits)" },
-        { bits: 12, label: "~2.5 km (12 Bits)" },
-        { bits: 16, label: "~150 m (16 Bits)" },
-        { bits: 19, label: "~20 m (19 Bits)" },
-        { bits: 32, label: "Genau (32 Bits)" }
-    ];
-
-    // Helper: Findet das Protobuf-Modul egal in welcher Version
-    function getProto() {
-        return window.meshtastic?.meshtastic?.ChannelSet || window.meshtastic?.ChannelSet;
+    // LIBRARY DETECTION FIX
+    function getChannelSetClass() {
+        // Verschiedene mögliche Pfade je nach CDN/Browser-Verhalten
+        return window.meshtastic?.ChannelSet || 
+               window.meshtastic?.meshtastic?.ChannelSet || 
+               (typeof Meshtastic !== 'undefined' ? Meshtastic.ChannelSet : null);
     }
 
+    // Status-Check alle 500ms
+    const checkLib = setInterval(() => {
+        if (getChannelSetClass()) {
+            const indicator = document.getElementById('lib-indicator');
+            indicator.innerText = "Library bereit ✅";
+            indicator.className = "lib-status status-ok";
+            clearInterval(checkLib);
+        }
+    }, 500);
+
+    const MAX_CHANNELS = 8;
     function createChannelUI(data = {}) {
         const count = document.querySelectorAll('.channel-card').length;
         if (count >= MAX_CHANNELS) return;
@@ -71,96 +76,66 @@
         div.className = `channel-card ${isPrimary ? 'primary' : ''}`;
         div.id = id;
         
-        const name = data.name !== undefined ? data.name : (isPrimary ? "" : "Kanal " + count);
-        const psk = data.psk !== undefined ? data.psk : "AQ==";
-        const precision = data.moduleSettings?.positionPrecision ?? 0;
-        const muted = data.moduleSettings?.isMuted ?? false;
-        const up = data.uplinkEnabled ?? false;
-        const down = data.downlinkEnabled ?? false;
-
         div.innerHTML = `
-            ${!isPrimary ? `<button class="remove-btn" onclick="document.getElementById('${id}').remove(); checkLimits();">Löschen</button>` : ''}
-            <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'} (Index ${count})</strong>
-            
+            ${!isPrimary ? `<button style="position:absolute;right:10px;top:10px;background:#a80000;color:white;border:none;padding:5px;" onclick="document.getElementById('${id}').remove()">X</button>` : ''}
+            <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'}</strong>
             <div class="settings-grid">
-                <div><label>Name</label><input type="text" class="chan-name" value="${name}"></div>
-                <div><label>PSK (Base64)</label><input type="text" class="psk-val" value="${psk}"></div>
+                <div><label>Name</label><input type="text" class="chan-name" value="${data.name || ''}"></div>
+                <div><label>PSK (Base64)</label><input type="text" class="psk-val" value="${data.psk || 'AQ=='}"></div>
+                <div><label>GPS Precision</label><select class="pos-precision">
+                    <option value="0" ${data.moduleSettings?.positionPrecision == 0 ? 'selected' : ''}>Aus (0)</option>
+                    <option value="16" ${data.moduleSettings?.positionPrecision == 16 ? 'selected' : ''}>~150m (16)</option>
+                    <option value="32" ${data.moduleSettings?.positionPrecision == 32 ? 'selected' : ''}>Genau (32)</option>
+                </select></div>
             </div>
-
-            <div class="module-settings">
-                <div class="settings-grid">
-                    <div>
-                        <label>GPS Präzision</label>
-                        <select class="pos-precision">
-                            ${precisionOptions.map(o => `<option value="${o.bits}" ${precision == o.bits ? 'selected' : ''}>${o.label}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div style="padding-top:15px">
-                        <label><input type="checkbox" class="is-muted" ${muted ? 'checked' : ''}> Muted</label>
-                    </div>
-                </div>
-                <div class="mqtt-zone">
-                    <span style="font-size: 0.7rem; color: #0078d4; font-weight: bold;">MQTT:</span>
-                    <label><input type="checkbox" class="uplink" ${up ? 'checked' : ''}> Uplink</label>
-                    <label><input type="checkbox" class="downlink" ${down ? 'checked' : ''}> Downlink</label>
-                </div>
+            <div style="margin-top:10px;">
+                <label><input type="checkbox" class="uplink" ${data.uplinkEnabled ? 'checked' : ''}> Uplink (MQTT)</label>
+                <label><input type="checkbox" class="downlink" ${data.downlinkEnabled ? 'checked' : ''}> Downlink (MQTT)</label>
             </div>
         `;
         document.getElementById('channel-list').appendChild(div);
-        checkLimits();
     }
 
     function addSecondary() { createChannelUI({ role: "SECONDARY" }); }
-    function checkLimits() { document.getElementById('add-btn').disabled = (document.querySelectorAll('.channel-card').length >= MAX_CHANNELS); }
 
     function importAny() {
         const input = document.getElementById('json-io').value.trim();
-        if (!input) return;
         let found = [];
-        try {
-            if (input.startsWith('[')) {
-                found = JSON.parse(input);
-            } else {
-                const lines = input.split('\n');
-                lines.forEach(line => {
-                    const role = line.toUpperCase().includes("PRIMARY") ? "PRIMARY" : "SECONDARY";
-                    const jsonPart = line.match(/\{.*\}/);
-                    if (jsonPart) {
-                        try {
-                            let ch = JSON.parse(jsonPart[0]);
-                            ch.role = role;
-                            found.push(ch);
-                        } catch(e) {}
-                    }
-                });
-            }
-            if (found.length > 0) {
-                document.getElementById('channel-list').innerHTML = "";
-                found.forEach(createChannelUI);
-            }
-        } catch (e) { alert("Fehler beim Parsen: " + e.message); }
+        if (input.startsWith('[')) { found = JSON.parse(input); } 
+        else {
+            input.split('\n').forEach(line => {
+                const jsonPart = line.match(/\{.*\}/);
+                if (jsonPart) {
+                    let ch = JSON.parse(jsonPart[0]);
+                    ch.role = line.includes("PRIMARY") ? "PRIMARY" : "SECONDARY";
+                    found.push(ch);
+                }
+            });
+        }
+        if (found.length) {
+            document.getElementById('channel-list').innerHTML = "";
+            found.forEach(createChannelUI);
+        }
     }
 
     async function buildUrl() {
-        const Proto = getProto();
-        if (!Proto) return alert("Library lädt noch oder CDN ist offline. Bitte Seite neu laden.");
+        const ChannelSet = getChannelSetClass();
+        if (!ChannelSet) return alert("Library noch nicht geladen!");
 
         const cards = document.querySelectorAll('.channel-card');
-        const channelSet = { channels: [] };
-        const jsonExp = [];
+        const payload = { channels: [] };
+        const jsonExport = [];
 
         cards.forEach((card, idx) => {
             const pskB64 = card.querySelector('.psk-val').value;
             let pskBytes = new Uint8Array(0);
-            if(pskB64) {
-                try {
-                    const bin = atob(pskB64);
-                    pskBytes = new Uint8Array(bin.length);
-                    for(let i=0; i<bin.length; i++) pskBytes[i] = bin.charCodeAt(i);
-                } catch(e) {}
+            if (pskB64) {
+                const bin = atob(pskB64);
+                pskBytes = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) pskBytes[i] = bin.charCodeAt(i);
             }
 
-            const chanData = {
+            const ch = {
                 index: idx,
                 role: idx === 0 ? 1 : 2,
                 settings: {
@@ -169,38 +144,20 @@
                     uplinkEnabled: card.querySelector('.uplink').checked,
                     downlinkEnabled: card.querySelector('.downlink').checked
                 },
-                moduleSettings: {
-                    positionPrecision: parseInt(card.querySelector('.pos-precision').value),
-                    isMuted: card.querySelector('.is-muted').checked
-                }
+                moduleSettings: { positionPrecision: parseInt(card.querySelector('.pos-precision').value) }
             };
-            channelSet.channels.push(chanData);
-            
-            // JSON Preview
-            jsonExp.push({
-                role: chanData.role === 1 ? "PRIMARY" : "SECONDARY",
-                name: chanData.settings.name,
-                psk: pskB64,
-                uplinkEnabled: chanData.settings.uplinkEnabled,
-                downlinkEnabled: chanData.settings.downlinkEnabled,
-                moduleSettings: chanData.moduleSettings
-            });
+            payload.channels.push(ch);
+            jsonExport.push({ ...ch, role: idx === 0 ? "PRIMARY" : "SECONDARY", psk: pskB64 });
         });
 
-        try {
-            const buffer = Proto.encode(channelSet).finish();
-            const b64 = btoa(String.fromCharCode(...buffer))
-                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-            document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
-            document.getElementById('json-io').value = JSON.stringify(jsonExp, null, 2);
-        } catch(e) { alert("Fehler: " + e.message); }
+        const buffer = ChannelSet.encode(payload).finish();
+        const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
+        document.getElementById('json-io').value = JSON.stringify(jsonExport, null, 2);
     }
 
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => alert("Kopiert!"));
-    }
-
-    window.onload = () => createChannelUI({ role: "PRIMARY", name: "", psk: "AQ==" });
+    function copyToClipboard(text) { navigator.clipboard.writeText(text); alert("URL kopiert!"); }
+    window.onload = () => createChannelUI({ role: "PRIMARY", psk: "AQ==" });
 </script>
 </body>
 </html>
