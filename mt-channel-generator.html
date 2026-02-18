@@ -2,113 +2,81 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Config V19</title>
-    <script src="https://cdn.jsdelivr.net/npm/@meshtastic/js@2.5.16/dist/meshtastic.min.js" crossorigin="anonymous"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meshtastic Generator</title>
+    <script src="meshtastic.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
-        .container { max-width: 850px; margin: auto; }
-        
-        /* Die Diagnose-Ampel */
-        .diag-box { display: flex; gap: 10px; margin-bottom: 20px; }
-        .stat { flex: 1; padding: 10px; border-radius: 5px; text-align: center; font-size: 0.8em; font-weight: bold; border: 1px solid #333; }
-        .ok { background: #1b3320; color: #44ff66; border-color: #2d5a35; }
-        .err { background: #331b1b; color: #ff4444; border-color: #5a2d2d; }
-        .wait { background: #332b10; color: #ffcc00; border-color: #5a4a2d; }
-
-        .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 5px solid #0078d4; }
-        input, select, textarea { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin: 15px 0; font-family: monospace; cursor: pointer; }
-        button { cursor: pointer; border: none; border-radius: 5px; padding: 10px; font-weight: bold; margin-top: 5px; }
-        .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; }
+        :root { --blue: #0078d4; --green: #28a745; --bg: #121212; --card: #1e1e1e; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #eee; padding: 20px; margin: 0; }
+        .container { max-width: 800px; margin: auto; }
+        .status { padding: 10px; border-radius: 5px; margin-bottom: 20px; text-align: center; font-weight: bold; font-size: 0.9em; border: 1px solid #333; }
+        .ready { background: #1b3320; color: #44ff66; border-color: #2d5a35; }
+        .wait { background: #332b10; color: #ffcc00; }
+        .card { background: var(--card); border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 5px solid var(--blue); }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        input, select, textarea { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 10px; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed var(--blue); word-break: break-all; margin: 15px 0; font-family: monospace; cursor: pointer; border-radius: 5px; }
+        button { cursor: pointer; border: none; border-radius: 5px; padding: 12px; font-weight: bold; transition: opacity 0.2s; }
+        .btn-add { background: #444; color: white; margin-bottom: 10px; }
+        .btn-gen { background: var(--green); color: white; width: 100%; font-size: 1.1em; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        label { font-size: 0.8em; color: #aaa; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Meshtastic Generator V19</h2>
-
-    <div class="diag-box">
-        <div id="stat-file" class="stat wait">DATEI: lädt...</div>
-        <div id="stat-obj" class="stat wait">OBJEKT: wird geprüft...</div>
-        <div id="stat-proto" class="stat wait">PROTOBUF: wird geprüft...</div>
-    </div>
+    <h2>Meshtastic Generator <span style="color: var(--blue);">V21</span></h2>
+    <div id="status" class="status wait">Warte auf lokale meshtastic.min.js...</div>
     
     <div id="channel-list"></div>
-    <button onclick="addChannelUI()" style="background: #444; color: #fff;">+ Neuer Kanal</button>
-    <button class="btn-gen" id="gen-btn" onclick="generate()" disabled>URL GENERIEREN (Warten auf Lib...)</button>
+    
+    <button class="btn-add" onclick="addChannel()">+ Kanal hinzufügen</button>
+    <button id="gen-btn" class="btn-gen" onclick="generate()" disabled>URL GENERIEREN</button>
 
-    <div class="url-box" id="url-output" onclick="copyText(this.innerText)">Noch keine URL generiert.</div>
-    <textarea id="json-io" rows="6" placeholder="Hier erscheint der JSON-Export..."></textarea>
+    <div class="url-box" id="url-output" onclick="copyText(this.innerText)">URL erscheint hier nach Generierung...</div>
+    <label>JSON Export / Import:</label>
+    <textarea id="json-io" rows="5"></textarea>
 </div>
 
 <script>
     let ChannelSet;
 
-    // Diagnose-Loop
+    // Überprüfung ob die Datei lokal geladen wurde
     const checkLib = setInterval(() => {
-        const fileStat = document.getElementById('stat-file');
-        const objStat = document.getElementById('stat-obj');
-        const protoStat = document.getElementById('stat-proto');
-        const genBtn = document.getElementById('gen-btn');
-
-        // 1. Check: Ist die Datei im Browser angekommen?
-        if (window.meshtastic) {
-            fileStat.innerText = "DATEI: GELADEN ✅";
-            fileStat.className = "stat ok";
-
-            // 2. Check: Ist das Haupt-Objekt verfügbar?
-            if (window.meshtastic.ChannelSet) {
-                objStat.innerText = "OBJEKT: GEFUNDEN ✅";
-                objStat.className = "stat ok";
-                ChannelSet = window.meshtastic.ChannelSet;
-
-                // 3. Check: Funktionieren die Protobuf-Methoden?
-                try {
-                    const test = ChannelSet.create({ channels: [] });
-                    if (test) {
-                        protoStat.innerText = "PROTO: BEREIT ✅";
-                        protoStat.className = "stat ok";
-                        genBtn.disabled = false;
-                        genBtn.innerText = "URL & JSON GENERIEREN";
-                        clearInterval(checkLib); // Alles gut, Loop stoppen
-                    }
-                } catch(e) {
-                    protoStat.innerText = "PROTO: FEHLER ❌";
-                    protoStat.className = "stat err";
-                }
-            } else {
-                objStat.innerText = "OBJEKT: FEHLT ❌";
-                objStat.className = "stat err";
-            }
-        } else {
-            // Falls nach 5 Sekunden nichts da ist, Warnung zeigen
-            setTimeout(() => {
-                if(!window.meshtastic) {
-                    fileStat.innerText = "DATEI: BLOCKIERT? ❌";
-                    fileStat.className = "stat err";
-                }
-            }, 5000);
+        if (window.meshtastic && window.meshtastic.ChannelSet) {
+            ChannelSet = window.meshtastic.ChannelSet;
+            const s = document.getElementById('status');
+            s.innerText = "Library lokal geladen ✅ Bereit.";
+            s.className = "status ready";
+            document.getElementById('gen-btn').disabled = false;
+            clearInterval(checkLib);
         }
     }, 500);
 
-    function addChannelUI(data = {}) {
+    function addChannel(data = {}) {
+        const list = document.getElementById('channel-list');
+        const idx = list.children.length;
         const div = document.createElement('div');
         div.className = 'card';
         div.innerHTML = `
-            <div style="display:flex; gap:10px;">
-                <input type="text" class="c-name" placeholder="Name" value="${data.name || ''}">
-                <input type="text" class="c-psk" placeholder="PSK" value="${data.psk || 'AQ=='}">
+            <strong>Kanal ${idx} (${idx === 0 ? 'PRIMARY' : 'SECONDARY'})</strong>
+            <div class="row">
+                <div><label>Name</label><input type="text" class="c-name" value="${data.name || ''}"></div>
+                <div><label>PSK (Base64)</label><input type="text" class="c-psk" value="${data.psk || 'AQ=='}"></div>
             </div>
-            <div style="margin-top:10px; font-size:0.8em; display:flex; gap:15px;">
-                Prec: <select class="c-prec" style="width:auto"><option value="0">0</option><option value="16">16</option><option value="32">32</option></select>
-                <label><input type="checkbox" class="c-up" ${data.uplinkEnabled ? 'checked' : ''} style="width:auto"> Uplink</label>
-                <label><input type="checkbox" class="c-down" ${data.downlinkEnabled ? 'checked' : ''} style="width:auto"> Downlink</label>
+            <div class="row" style="font-size:0.9em;">
+                <div>Prec: <select class="c-prec"><option value="0">0</option><option value="16">16</option><option value="32">32</option></select></div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <label><input type="checkbox" class="c-up" style="width:auto"> Up</label>
+                    <label><input type="checkbox" class="c-down" style="width:auto"> Down</label>
+                </div>
             </div>
         `;
-        document.getElementById('channel-list').appendChild(div);
+        list.appendChild(div);
     }
 
-    async function generate() {
+    function generate() {
         if (!ChannelSet) return;
         const cards = document.querySelectorAll('.card');
         const payload = { channels: [] };
@@ -131,16 +99,20 @@
             });
         });
 
-        try {
-            const buffer = ChannelSet.encode(ChannelSet.create(payload)).finish();
-            const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-            document.getElementById('url-output').innerText = "https://www.meshtastic.org/d/#" + b64;
-            document.getElementById('json-io').value = JSON.stringify(payload, (k,v) => v instanceof Uint8Array ? "Base64..." : v, 2);
-        } catch(e) { alert("Fehler: " + e.message); }
+        const buffer = ChannelSet.encode(ChannelSet.create(payload)).finish();
+        const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        document.getElementById('url-output').innerText = "https://www.meshtastic.org/d/#" + b64;
+        document.getElementById('json-io').value = JSON.stringify(payload, (k,v) => v instanceof Uint8Array ? "Base64" : v, 2);
     }
 
-    function copyText(t) { navigator.clipboard.writeText(t); alert("URL kopiert!"); }
-    window.onload = () => addChannelUI();
+    function copyText(t) { 
+        if(t.includes("http")) {
+            navigator.clipboard.writeText(t); 
+            alert("URL kopiert!"); 
+        }
+    }
+
+    window.onload = () => addChannel();
 </script>
 </body>
 </html>
