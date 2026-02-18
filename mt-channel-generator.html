@@ -2,67 +2,70 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Configurator V15</title>
+    <title>Meshtastic Configurator V16</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
         .container { max-width: 900px; margin: auto; }
-        .status-box { padding: 10px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; text-align: center; }
-        .loading { background: #443300; color: #ffcc00; }
-        .ready { background: #1b3320; color: #44ff66; }
+        .status-box { padding: 10px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; text-align: center; border: 1px solid #333; }
+        .loading { background: #332b00; color: #ffcc00; }
+        .ready { background: #1b3320; color: #44ff66; border-color: #2d5a35; }
         .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 6px solid #444; }
         .primary { border-left-color: #0078d4; }
-        input, select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; }
+        input, select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 10px; border-radius: 4px; }
         .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin: 15px 0; font-family: monospace; cursor: pointer; border-radius: 5px; }
         button { cursor: pointer; border: none; border-radius: 5px; padding: 10px 15px; font-weight: bold; }
-        .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; }
+        .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; margin-top: 10px; }
         textarea { background: #1a1a1a; color: #00ff41; width: 100%; height: 160px; border: 1px solid #333; font-family: monospace; padding: 10px; box-sizing: border-box; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Meshtastic Generator <span style="color: #0078d4;">V15</span></h2>
-    <div id="status" class="status-box loading">Initialisiere Modul-Bundle (ORB Bypass)...</div>
+    <h2>Meshtastic Generator <span style="color: #0078d4;">V16</span></h2>
+    <div id="status" class="status-box loading">Lade Module via Skypack...</div>
     
     <div id="channel-list"></div>
-    <button onclick="window.addChannel()" style="background: #444; color: #fff;">+ Kanal</button>
-    <button onclick="window.doImport()" style="background: #0078d4; color: #fff;">Import (CLI/JSON)</button>
+    <div style="display:flex; gap:10px;">
+        <button onclick="window.addChannelUI()" style="background: #444; color: #fff;">+ Kanal</button>
+        <button onclick="window.doImport()" style="background: #0078d4; color: #fff;">Import (CLI/JSON)</button>
+    </div>
 
-    <button class="btn-gen" onclick="window.generate()" style="margin-top:20px;">URL & JSON GENERIEREN</button>
+    <button class="btn-gen" onclick="window.generate()">URL & JSON GENERIEREN</button>
 
+    <h3>Import URL</h3>
     <div class="url-box" id="url-output" onclick="window.copyText(this.innerText)">URL erscheint hier...</div>
+    
+    <h3>Input / Output</h3>
     <textarea id="json-io" placeholder="Daten hier einfügen..."></textarea>
 </div>
 
 <script type="module">
-    // Dieser spezielle Import-Typ (esm.sh mit ?bundle) löst das ORB-Problem, 
-    // da alle Sub-Abhängigkeiten serverseitig in EINE Datei gepackt werden.
-    import * as MeshtasticLib from 'https://esm.sh/@meshtastic/js@latest?bundle';
+    // Skypack liefert ein korrekt gebündeltes ES-Modul ohne Pfad-Fehler
+    import * as Meshtastic from 'https://cdn.skypack.dev/@meshtastic/js';
 
-    let ChannelSet = MeshtasticLib.ChannelSet;
-
-    // Status aktualisieren
-    const s = document.getElementById('status');
-    if (ChannelSet) {
-        s.innerText = "Library bereit ✅ (ORB Bypass aktiv)";
+    // Status Update
+    if (Meshtastic && Meshtastic.ChannelSet) {
+        const s = document.getElementById('status');
+        s.innerText = "Library bereit ✅ (Skypack ESM)";
         s.className = "status-box ready";
     }
 
-    window.addChannel = (data = {}) => {
+    window.addChannelUI = (data = {}) => {
         const list = document.getElementById('channel-list');
-        const isPrimary = list.children.length === 0;
+        const count = list.children.length;
+        const isPrimary = count === 0;
         const div = document.createElement('div');
         div.className = `card ${isPrimary ? 'primary' : ''}`;
         div.innerHTML = `
             <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'}</strong>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
                 <input type="text" class="c-name" placeholder="Name" value="${data.name || ''}">
                 <input type="text" class="c-psk" placeholder="PSK" value="${data.psk || 'AQ=='}">
             </div>
-            <div style="margin-top:10px; font-size:0.9em;">
+            <div style="margin-top:10px; font-size:0.9em; display:flex; gap:15px; align-items:center;">
                 Precision: <select class="c-prec"><option value="0">0</option><option value="16">16</option><option value="32">32</option></select>
-                <label style="margin-left:10px"><input type="checkbox" class="c-up" ${data.uplinkEnabled ? 'checked' : ''}> Uplink</label>
-                <label style="margin-left:10px"><input type="checkbox" class="c-down" ${data.downlinkEnabled ? 'checked' : ''}> Downlink</label>
+                <label><input type="checkbox" class="c-up" ${data.uplinkEnabled ? 'checked' : ''}> Uplink</label>
+                <label><input type="checkbox" class="c-down" ${data.downlinkEnabled ? 'checked' : ''}> Downlink</label>
             </div>
         `;
         list.appendChild(div);
@@ -70,12 +73,20 @@
 
     window.generate = async () => {
         const cards = document.querySelectorAll('.card');
-        const config = { channels: [] };
+        const channelSetObj = { channels: [] };
+        
         cards.forEach((card, i) => {
-            const psk = card.querySelector('.c-psk').value;
+            const pskStr = card.querySelector('.c-psk').value.trim();
             let pskBytes = new Uint8Array(0);
-            try { if(psk) pskBytes = Uint8Array.from(atob(psk), c => c.charCodeAt(0)); } catch(e){}
-            config.channels.push({
+            try { 
+                if(pskStr) {
+                    const binary = atob(pskStr);
+                    pskBytes = new Uint8Array(binary.length);
+                    for (let x = 0; x < binary.length; x++) pskBytes[x] = binary.charCodeAt(x);
+                }
+            } catch(e){}
+
+            channelSetObj.channels.push({
                 index: i,
                 role: i === 0 ? 1 : 2,
                 settings: {
@@ -87,25 +98,26 @@
                 moduleSettings: { positionPrecision: parseInt(card.querySelector('.c-prec').value) }
             });
         });
-        const buffer = ChannelSet.encode(config).finish();
+
+        const buffer = Meshtastic.ChannelSet.encode(channelSetObj).finish();
         const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
-        document.getElementById('json-io').value = JSON.stringify(config, (k,v) => v instanceof Uint8Array ? psk : v, 2);
+        document.getElementById('json-io').value = JSON.stringify(channelSetObj, (k,v) => v instanceof Uint8Array ? btoa(String.fromCharCode(...v)) : v, 2);
     };
 
     window.doImport = () => {
-        const raw = document.getElementById('json-io').value;
-        const match = raw.match(/\{.*\}/g);
-        if(match) {
+        const raw = document.getElementById('json-io').value.trim();
+        const matches = raw.match(/\{.*\}/g);
+        if(matches) {
             document.getElementById('channel-list').innerHTML = "";
-            match.forEach(m => window.addChannel(JSON.parse(m)));
+            matches.forEach(m => window.addChannelUI(JSON.parse(m)));
         }
     };
 
-    window.copyText = (t) => { navigator.clipboard.writeText(t); alert("Kopiert!"); };
+    window.copyText = (t) => { navigator.clipboard.writeText(t); alert("URL kopiert!"); };
 
-    // Start
-    window.addChannel();
+    // Initialer Kanal
+    window.addChannelUI();
 </script>
 </body>
 </html>
