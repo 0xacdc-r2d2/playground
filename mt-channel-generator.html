@@ -2,117 +2,148 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Config V12</title>
-    <script src="https://unpkg.com/@meshtastic/js@2.5.16/dist/meshtastic.js"></script>
+    <title>Meshtastic Config V13</title>
+    <script src="https://cdn.jsdelivr.net/npm/@meshtastic/js@latest/dist/meshtastic.min.js"></script>
     <style>
-        body { font-family: sans-serif; background: #121212; color: #eee; padding: 20px; }
-        .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 5px solid #0078d4; }
-        input, select, textarea { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin: 10px 0; font-family: monospace; cursor: pointer; }
-        button { cursor: pointer; border: none; border-radius: 5px; padding: 10px; font-weight: bold; margin-top: 5px; }
-        .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.2em; }
-        .mqtt { font-size: 0.8em; color: #ffa500; display: flex; gap: 10px; margin-top: 10px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 900px; margin: auto; }
+        .status-bar { padding: 8px; border-radius: 4px; margin-bottom: 15px; font-weight: bold; font-size: 0.9em; }
+        .loading { background: #ffa500; color: #000; }
+        .ready { background: #28a745; color: #fff; }
+        .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 12px; border-radius: 8px; border-left: 5px solid #444; position: relative; }
+        .primary { border-left-color: #0078d4; }
+        input, select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; margin: 5px 0; }
+        .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin: 15px 0; font-family: monospace; cursor: pointer; border-radius: 5px; }
+        button { cursor: pointer; border: none; border-radius: 5px; padding: 10px 15px; font-weight: bold; transition: 0.3s; }
+        .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; margin-top: 10px; }
+        .btn-gen:hover { background: #218838; }
+        .mqtt-options { display: flex; gap: 15px; font-size: 0.8em; align-items: center; margin-top: 8px; color: #ffa500; }
+        textarea { background: #1a1a1a; color: #00ff41; width: 100%; height: 150px; border: 1px solid #333; font-family: monospace; padding: 10px; box-sizing: border-box; margin-top: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
 
-    <h2>Meshtastic Config V12</h2>
-    <div id="status" style="color: #ffa500; margin-bottom: 10px;">Lade Library...</div>
+<div class="container">
+    <h2>Meshtastic Configurator <span style="color: #0078d4;">V13</span></h2>
+    <div id="status" class="status-bar loading">Suche Meshtastic Library...</div>
     
     <div id="channel-list"></div>
-    <button onclick="addChannel()" style="background: #444; color: #fff;">+ Kanal hinzufügen</button>
-    <button onclick="importData()" style="background: #0078d4; color: #fff;">Import (CLI/JSON)</button>
+    
+    <div style="display: flex; gap: 10px;">
+        <button onclick="addChannelUI()" style="background: #444; color: #fff;">+ Sekundärkanal</button>
+        <button onclick="doImport()" style="background: #0078d4; color: #fff;">Import (CLI/JSON)</button>
+    </div>
 
-    <button class="btn-gen" onclick="generate()">URL GENERIEREN</button>
+    <button class="btn-gen" onclick="generateConfig()">URL & JSON GENERIEREN</button>
 
-    <div class="url-box" id="url-out" onclick="copyUrl()">URL erscheint hier...</div>
-    <textarea id="io" rows="8" placeholder="Output / Import hier..."></textarea>
+    <div class="url-box" id="url-output" onclick="copyText(this.innerText)">Noch keine URL generiert.</div>
+    <textarea id="json-io" placeholder="CLI Output oder JSON hier einfügen..."></textarea>
+</div>
 
 <script>
-    // Einfachster Zugriff auf die geladene Library
-    let Lib;
-    const check = setInterval(() => {
-        Lib = window.meshtastic?.ChannelSet || window.Meshtastic?.ChannelSet;
-        if (Lib) {
-            document.getElementById('status').innerHTML = "Bereit ✅";
-            document.getElementById('status').style.color = "#28a745";
-            clearInterval(check);
-        }
-    }, 200);
+    let ChannelSet;
 
-    function addChannel(data = {}) {
+    // Robuste Erkennung der Library
+    const libTimer = setInterval(() => {
+        // Prüft verschiedene Export-Patterns, die je nach Version auftreten können
+        const lib = window.meshtastic || window.Meshtastic;
+        if (lib && lib.ChannelSet) {
+            ChannelSet = lib.ChannelSet;
+            const s = document.getElementById('status');
+            s.innerText = "Library bereit ✅ (Latest)";
+            s.className = "status-bar ready";
+            clearInterval(libTimer);
+        }
+    }, 300);
+
+    function addChannelUI(data = {}) {
+        const list = document.getElementById('channel-list');
+        const count = list.children.length;
+        const isPrimary = (count === 0 && data.role !== "SECONDARY") || data.role === "PRIMARY";
+        
         const div = document.createElement('div');
-        div.className = 'card';
+        div.className = `card ${isPrimary ? 'primary' : ''}`;
+        
         div.innerHTML = `
-            <input type="text" class="name" placeholder="Name" value="${data.name || ''}" style="width:45%">
-            <input type="text" class="psk" placeholder="PSK" value="${data.psk || 'AQ=='}" style="width:45%">
-            <div class="mqtt">
-                Präzision: <select class="prec" style="width: auto">
-                    <option value="0" ${data.moduleSettings?.positionPrecision == 0 ? 'selected' : ''}>0 (Aus)</option>
+            <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'}</strong>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <input type="text" class="c-name" placeholder="Name" value="${data.name || ''}">
+                <input type="text" class="c-psk" placeholder="PSK (Base64)" value="${data.psk || 'AQ=='}">
+            </div>
+            <div class="mqtt-options">
+                Genauigkeit: 
+                <select class="c-prec">
+                    <option value="0" ${data.moduleSettings?.positionPrecision == 0 ? 'selected' : ''}>Aus (0)</option>
                     <option value="16" ${data.moduleSettings?.positionPrecision == 16 ? 'selected' : ''}>16 (~150m)</option>
-                    <option value="32" ${data.moduleSettings?.positionPrecision == 32 ? 'selected' : ''}>32 (Genau)</option>
+                    <option value="32" ${data.moduleSettings?.positionPrecision == 32 ? 'selected' : ''}>Genau (32)</option>
                 </select>
-                <label><input type="checkbox" class="up" ${data.uplinkEnabled ? 'checked' : ''}> Uplink</label>
-                <label><input type="checkbox" class="down" ${data.downlinkEnabled ? 'checked' : ''}> Downlink</label>
+                <label><input type="checkbox" class="c-up" ${data.uplinkEnabled ? 'checked' : ''}> Uplink</label>
+                <label><input type="checkbox" class="c-down" ${data.downlinkEnabled ? 'checked' : ''}> Downlink</label>
+                ${!isPrimary ? `<button onclick="this.parentElement.parentElement.remove()" style="background:none; color:#ff4444; padding:0; margin-left:auto;">Löschen</button>` : ''}
             </div>
         `;
-        document.getElementById('channel-list').appendChild(div);
+        list.appendChild(div);
     }
 
-    async function generate() {
-        if (!Lib) return alert("Library noch nicht bereit!");
+    async function generateConfig() {
+        if (!ChannelSet) return alert("Library lädt noch...");
+
         const cards = document.querySelectorAll('.card');
-        const set = { channels: [] };
-        const json = [];
+        const config = { channels: [] };
+        const jsonPreview = [];
 
-        cards.forEach((c, i) => {
-            const pskB64 = c.querySelector('.psk').value;
+        cards.forEach((card, i) => {
+            const pskStr = card.querySelector('.c-psk').value;
             let pskBytes = new Uint8Array(0);
-            try { if(pskB64) pskBytes = Uint8Array.from(atob(pskB64), c => c.charCodeAt(0)); } catch(e){}
+            try { if(pskStr) pskBytes = Uint8Array.from(atob(pskStr), c => c.charCodeAt(0)); } catch(e){}
 
-            const chan = {
+            const ch = {
                 index: i,
                 role: i === 0 ? 1 : 2,
                 settings: {
-                    name: c.querySelector('.name').value,
+                    name: card.querySelector('.c-name').value,
                     psk: pskBytes,
-                    uplinkEnabled: c.querySelector('.up').checked,
-                    downlinkEnabled: c.querySelector('.down').checked
+                    uplinkEnabled: card.querySelector('.c-up').checked,
+                    downlinkEnabled: card.querySelector('.c-down').checked
                 },
-                moduleSettings: { positionPrecision: parseInt(c.querySelector('.prec').value) }
+                moduleSettings: { positionPrecision: parseInt(card.querySelector('.c-prec').value) }
             };
-            set.channels.push(chan);
-            json.push({...chan, role: i===0?"PRIMARY":"SECONDARY", psk: pskB64});
+            config.channels.push(ch);
+            jsonPreview.push({...ch, role: i === 0 ? "PRIMARY" : "SECONDARY", psk: pskStr});
         });
 
-        const buffer = Lib.encode(set).finish();
+        const buffer = ChannelSet.encode(config).finish();
         const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-        document.getElementById('url-out').innerText = "https://www.meshtastic.org/d/#" + b64;
-        document.getElementById('io').value = JSON.stringify(json, null, 2);
+        
+        document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
+        document.getElementById('json-io').value = JSON.stringify(jsonPreview, null, 2);
     }
 
-    function importData() {
-        const val = document.getElementById('io').value;
-        let found = [];
-        if (val.startsWith('[')) found = JSON.parse(val);
-        else val.split('\n').forEach(l => {
-            const m = l.match(/\{.*\}/);
-            if (m) { 
-                let j = JSON.parse(m[0]); 
-                j.role = l.includes("PRIMARY") ? "PRIMARY" : "SECONDARY";
-                found.push(j); 
-            }
-        });
-        if (found.length) {
+    function doImport() {
+        const raw = document.getElementById('json-io').value.trim();
+        let list = [];
+        if (raw.startsWith('[')) { list = JSON.parse(raw); }
+        else {
+            raw.split('\n').forEach(line => {
+                const match = line.match(/\{.*\}/);
+                if (match) {
+                    let j = JSON.parse(match[0]);
+                    j.role = line.includes("PRIMARY") ? "PRIMARY" : "SECONDARY";
+                    list.push(j);
+                }
+            });
+        }
+        if (list.length) {
             document.getElementById('channel-list').innerHTML = "";
-            found.forEach(addChannel);
+            list.forEach(addChannelUI);
         }
     }
 
-    function copyUrl() { navigator.clipboard.writeText(document.getElementById('url-out').innerText); alert("Kopiert!"); }
+    function copyText(t) { navigator.clipboard.writeText(t); alert("Kopiert!"); }
     
-    // Start mit Primary
-    window.onload = () => addChannel({ role: "PRIMARY", psk: "AQ==" });
+    // Start-Setup
+    window.onload = () => addChannelUI({ role: "PRIMARY", psk: "AQ==" });
 </script>
+
 </body>
 </html>
