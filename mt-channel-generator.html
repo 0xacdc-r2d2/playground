@@ -2,19 +2,18 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Meshtastic Configurator V10</title>
-    <script src="https://unpkg.com/@meshtastic/js@latest/dist/index.min.js"></script>
+    <title>Meshtastic Configurator V11</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
         .container { max-width: 950px; margin: auto; }
         .lib-status { padding: 5px 10px; border-radius: 4px; font-size: 0.8em; display: inline-block; margin-bottom: 10px; }
         .status-ok { background: #28a745; color: white; }
-        .status-error { background: #a80000; color: white; }
+        .status-loading { background: #ffa500; color: black; }
         .channel-card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 6px solid #444; position: relative; }
         .primary { border-left-color: #0078d4; }
         .controls { margin-bottom: 20px; display: flex; gap: 10px; }
         input, select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin-top: 10px; font-family: monospace; border-radius: 5px; cursor: pointer; }
+        .url-box { background: #000; color: #569cd6; padding: 15px; border: 1px dashed #0078d4; word-break: break-all; margin-top: 10px; font-family: monospace; border-radius: 5px; cursor: pointer; min-height: 20px; }
         .btn { cursor: pointer; border: none; border-radius: 5px; font-weight: bold; padding: 10px 20px; }
         .btn-gen { background: #28a745; color: white; width: 100%; font-size: 1.1em; margin-top: 20px; }
         .btn-add { background: #444; color: white; }
@@ -27,46 +26,42 @@
 <body>
 
 <div class="container">
-    <h2>Meshtastic Channel Generator <span style="color: #0078d4;">V10</span></h2>
-    <div id="lib-indicator" class="lib-status status-error">Library wird geladen...</div>
+    <h2>Meshtastic Channel Generator <span style="color: #0078d4;">V11</span></h2>
+    <div id="lib-indicator" class="lib-status status-loading">Warte auf Module-Import...</div>
     
     <div id="channel-list"></div>
     
     <div class="controls">
-        <button id="add-btn" class="btn btn-add" onclick="addSecondary()">+ Sekundärkanal</button>
-        <button class="btn btn-import" onclick="importAny()">Import (CLI / JSON)</button>
+        <button id="add-btn" class="btn btn-add" onclick="window.addSecondary()">+ Sekundärkanal</button>
+        <button class="btn btn-import" onclick="window.importAny()">Import (CLI / JSON)</button>
     </div>
 
-    <button class="btn btn-gen" onclick="buildUrl()">GENERIERE IMPORT-URL & JSON</button>
+    <button class="btn btn-gen" onclick="window.buildUrl()">GENERIERE IMPORT-URL & JSON</button>
 
     <h3>1. Meshtastic Import URL</h3>
-    <div id="url-output" class="url-box" onclick="copyToClipboard(this.innerText)">Noch keine URL generiert.</div>
+    <div id="url-output" class="url-box" onclick="window.copyToClipboard(this.innerText)">Klicke "Generiere" unten...</div>
 
     <h3>2. Daten (JSON/CLI)</h3>
     <textarea id="json-io"></textarea>
 </div>
 
-<script>
-    // LIBRARY DETECTION FIX
-    function getChannelSetClass() {
-        // Verschiedene mögliche Pfade je nach CDN/Browser-Verhalten
-        return window.meshtastic?.ChannelSet || 
-               window.meshtastic?.meshtastic?.ChannelSet || 
-               (typeof Meshtastic !== 'undefined' ? Meshtastic.ChannelSet : null);
+<script type="module">
+    // Wir importieren die Library direkt als ES-Modul vom CDN
+    import * as meshtastic from 'https://cdn.jsdelivr.net/npm/@meshtastic/js@latest/dist/index.min.js';
+
+    let ChannelSetClass = meshtastic.ChannelSet;
+
+    // Status-Update
+    const indicator = document.getElementById('lib-indicator');
+    if (ChannelSetClass) {
+        indicator.innerText = "Module bereit ✅";
+        indicator.className = "lib-status status-ok";
     }
 
-    // Status-Check alle 500ms
-    const checkLib = setInterval(() => {
-        if (getChannelSetClass()) {
-            const indicator = document.getElementById('lib-indicator');
-            indicator.innerText = "Library bereit ✅";
-            indicator.className = "lib-status status-ok";
-            clearInterval(checkLib);
-        }
-    }, 500);
-
     const MAX_CHANNELS = 8;
-    function createChannelUI(data = {}) {
+
+    // Wir binden die Funktionen an das window-Objekt, damit die Buttons sie finden
+    window.createChannelUI = (data = {}) => {
         const count = document.querySelectorAll('.channel-card').length;
         if (count >= MAX_CHANNELS) return;
 
@@ -77,8 +72,8 @@
         div.id = id;
         
         div.innerHTML = `
-            ${!isPrimary ? `<button style="position:absolute;right:10px;top:10px;background:#a80000;color:white;border:none;padding:5px;" onclick="document.getElementById('${id}').remove()">X</button>` : ''}
-            <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'}</strong>
+            ${!isPrimary ? `<button style="position:absolute;right:10px;top:10px;background:#a80000;color:white;border:none;padding:5px;cursor:pointer;" onclick="document.getElementById('${id}').remove()">X</button>` : ''}
+            <strong>${isPrimary ? 'PRIMARY' : 'SECONDARY'} (Index ${count})</strong>
             <div class="settings-grid">
                 <div><label>Name</label><input type="text" class="chan-name" value="${data.name || ''}"></div>
                 <div><label>PSK (Base64)</label><input type="text" class="psk-val" value="${data.psk || 'AQ=='}"></div>
@@ -88,39 +83,40 @@
                     <option value="32" ${data.moduleSettings?.positionPrecision == 32 ? 'selected' : ''}>Genau (32)</option>
                 </select></div>
             </div>
-            <div style="margin-top:10px;">
-                <label><input type="checkbox" class="uplink" ${data.uplinkEnabled ? 'checked' : ''}> Uplink (MQTT)</label>
-                <label><input type="checkbox" class="downlink" ${data.downlinkEnabled ? 'checked' : ''}> Downlink (MQTT)</label>
+            <div style="margin-top:10px; display:flex; gap:20px;">
+                <label style="display:flex; align-items:center;"><input type="checkbox" class="uplink" ${data.uplinkEnabled ? 'checked' : ''} style="width:auto;margin-right:5px;"> Uplink</label>
+                <label style="display:flex; align-items:center;"><input type="checkbox" class="downlink" ${data.downlinkEnabled ? 'checked' : ''} style="width:auto;margin-right:5px;"> Downlink</label>
             </div>
         `;
         document.getElementById('channel-list').appendChild(div);
-    }
+    };
 
-    function addSecondary() { createChannelUI({ role: "SECONDARY" }); }
+    window.addSecondary = () => window.createChannelUI({ role: "SECONDARY" });
 
-    function importAny() {
+    window.importAny = () => {
         const input = document.getElementById('json-io').value.trim();
         let found = [];
-        if (input.startsWith('[')) { found = JSON.parse(input); } 
-        else {
-            input.split('\n').forEach(line => {
-                const jsonPart = line.match(/\{.*\}/);
-                if (jsonPart) {
-                    let ch = JSON.parse(jsonPart[0]);
-                    ch.role = line.includes("PRIMARY") ? "PRIMARY" : "SECONDARY";
-                    found.push(ch);
-                }
-            });
-        }
-        if (found.length) {
-            document.getElementById('channel-list').innerHTML = "";
-            found.forEach(createChannelUI);
-        }
-    }
+        try {
+            if (input.startsWith('[')) { found = JSON.parse(input); } 
+            else {
+                input.split('\n').forEach(line => {
+                    const jsonPart = line.match(/\{.*\}/);
+                    if (jsonPart) {
+                        let ch = JSON.parse(jsonPart[0]);
+                        ch.role = line.toUpperCase().includes("PRIMARY") ? "PRIMARY" : "SECONDARY";
+                        found.push(ch);
+                    }
+                });
+            }
+            if (found.length) {
+                document.getElementById('channel-list').innerHTML = "";
+                found.forEach(window.createChannelUI);
+            }
+        } catch(e) { alert("Fehler: " + e.message); }
+    };
 
-    async function buildUrl() {
-        const ChannelSet = getChannelSetClass();
-        if (!ChannelSet) return alert("Library noch nicht geladen!");
+    window.buildUrl = async () => {
+        if (!ChannelSetClass) return alert("Library nicht geladen!");
 
         const cards = document.querySelectorAll('.channel-card');
         const payload = { channels: [] };
@@ -130,9 +126,11 @@
             const pskB64 = card.querySelector('.psk-val').value;
             let pskBytes = new Uint8Array(0);
             if (pskB64) {
-                const bin = atob(pskB64);
-                pskBytes = new Uint8Array(bin.length);
-                for (let i = 0; i < bin.length; i++) pskBytes[i] = bin.charCodeAt(i);
+                try {
+                    const bin = atob(pskB64);
+                    pskBytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) pskBytes[i] = bin.charCodeAt(i);
+                } catch(e) {}
             }
 
             const ch = {
@@ -150,14 +148,16 @@
             jsonExport.push({ ...ch, role: idx === 0 ? "PRIMARY" : "SECONDARY", psk: pskB64 });
         });
 
-        const buffer = ChannelSet.encode(payload).finish();
+        const buffer = ChannelSetClass.encode(payload).finish();
         const b64 = btoa(String.fromCharCode(...buffer)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         document.getElementById('url-output').innerText = `https://www.meshtastic.org/d/#${b64}`;
         document.getElementById('json-io').value = JSON.stringify(jsonExport, null, 2);
-    }
+    };
 
-    function copyToClipboard(text) { navigator.clipboard.writeText(text); alert("URL kopiert!"); }
-    window.onload = () => createChannelUI({ role: "PRIMARY", psk: "AQ==" });
+    window.copyToClipboard = (text) => { navigator.clipboard.writeText(text); alert("URL kopiert!"); };
+
+    // Initialer Start
+    window.createChannelUI({ role: "PRIMARY", psk: "AQ==" });
 </script>
 </body>
 </html>
